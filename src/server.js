@@ -25,6 +25,15 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// Verify connection configuration
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("Error in SMTP configuration:", error);
+  } else {
+    console.log("SMTP server is ready to send emails");
+  }
+});
+
 app.post("/api/referrals", async (req, res) => {
   const { referrerName, refereeName, email, program } = req.body;
 
@@ -39,7 +48,7 @@ app.post("/api/referrals", async (req, res) => {
       data: { referrerName, refereeName, email, program },
     });
 
-    // Send email notification
+    // Send email notification asynchronously
     const mailOptions = {
       from: process.env.GMAIL_USER,
       to: email,
@@ -50,14 +59,12 @@ app.post("/api/referrals", async (req, res) => {
     transporter.sendMail(mailOptions, (error, info) => {
       if (error) {
         console.error("Error in sending email:", error);
-        return res
-          .status(500)
-          .send({ error: "Error in sending email", message: error.message });
       } else {
         console.log("Email sent:", info.response);
-        res.status(200).send({ success: true, referral });
       }
     });
+
+    res.status(200).send({ success: true, referral });
   } catch (error) {
     console.error("Error in /api/referrals:", error);
     res
