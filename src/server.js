@@ -25,12 +25,24 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Verify connection configuration
-transporter.verify((error, success) => {
+// Verify connection configuration and pre-warm SMTP connection
+transporter.verify(async (error, success) => {
   if (error) {
     console.error("Error in SMTP configuration:", error);
   } else {
     console.log("SMTP server is ready to send emails");
+    // Send a test email to warm up the connection
+    try {
+      await transporter.sendMail({
+        from: process.env.GMAIL_USER,
+        to: process.env.GMAIL_USER,
+        subject: "Test email",
+        text: "This is a test email to warm up the SMTP connection.",
+      });
+      console.log("Test email sent successfully.");
+    } catch (testError) {
+      console.error("Error sending test email:", testError);
+    }
   }
 });
 
@@ -56,13 +68,13 @@ app.post("/api/referrals", async (req, res) => {
       text: `Hi ${refereeName},\n\n${referrerName} has referred you to check out our program: ${program}!\n\nBest regards,\nAccredian`,
     };
 
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.error("Error in sending email:", error);
-      } else {
+    transporter.sendMail(mailOptions)
+      .then(info => {
         console.log("Email sent:", info.response);
-      }
-    });
+      })
+      .catch(error => {
+        console.error("Error in sending email:", error);
+      });
 
     res.status(200).send({ success: true, referral });
   } catch (error) {
