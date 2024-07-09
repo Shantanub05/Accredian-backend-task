@@ -1,9 +1,10 @@
 const express = require("express");
 const { PrismaClient } = require("@prisma/client");
-const nodemailer = require("nodemailer");
 const bodyParser = require("body-parser");
 const dotenv = require("dotenv");
 const cors = require("cors");
+const { google } = require("googleapis");
+const { authorize } = require("./google-auth");
 
 dotenv.config();
 
@@ -14,67 +15,49 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-});
+function sendMail(auth, email, subject, message) {
+  const gmail = google.gmail({ version: "v1", auth });
+  const encodedMessage = Buffer.from(
+    `To: ${email}\r\n` + `Subject: ${subject}\r\n\r\n` + `${message}`
+  )
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 
-// Verify connection configuration and pre-warm SMTP connection
-transporter.verify(async (error, success) => {
-  if (error) {
-    console.error("Error in SMTP configuration:", error);
-  } else {
-    console.log("SMTP server is ready to send emails");
-    // Send a test email to warm up the connection
-    try {
-      await transporter.sendMail({
-        from: process.env.GMAIL_USER,
-        to: process.env.GMAIL_USER,
-        subject: "Test email",
-        text: "This is a test email to warm up the SMTP connection.",
-      });
-      console.log("Test email sent successfully.");
-    } catch (testError) {
-      console.error("Error sending test email:", testError);
+  gmail.users.messages.send(
+    {
+      userId: "me",
+      requestBody: {
+        raw: encodedMessage,
+      },
+    },
+    (err, res) => {
+      if (err) return console.error("Error sending email", err);
+      console.log("Email sent:", res.data);
     }
-  }
-});
+  );
+}
 
 app.post("/api/referrals", async (req, res) => {
   const { referrerName, refereeName, email, program } = req.body;
 
-  // Validation
   if (!referrerName || !refereeName || !email || !program) {
     return res.status(400).send({ error: "Missing required fields" });
   }
 
   try {
-    // Save referral data
     const referral = await prisma.referral.create({
       data: { referrerName, refereeName, email, program },
     });
 
-    // Send email notification asynchronously
-    const mailOptions = {
-      from: process.env.GMAIL_USER,
-      to: email,
-      subject: "You've been referred!",
-      text: `Hi ${refereeName},\n\n${referrerName} has referred you to check out our program: ${program}!\n\nBest regards,\nAccredian`,
-    };
-
-    transporter.sendMail(mailOptions)
-      .then(info => {
-        console.log("Email sent:", info.response);
-      })
-      .catch(error => {
-        console.error("Error in sending email:", error);
-      });
+    const auth = authorize();
+    sendMail(
+      auth,
+      email,
+      "You've been referred!",
+      `Hi ${refereeName},\n\n${referrerName} has referred you to check out our program: ${program}!\n\nBest regards,\nAccredian`
+    );
 
     res.status(200).send({ success: true, referral });
   } catch (error) {
